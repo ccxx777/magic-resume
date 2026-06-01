@@ -21,12 +21,96 @@ import {
   RotateCcw,
   StopCircle,
   Settings2,
-  X
+  X,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Streamdown } from "streamdown";
 import "streamdown/styles.css";
+
+// 生成带 AI 标识的简历名
+const generateAIFilename = (originalName: string): string => {
+  const date = new Date();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${originalName}-AI优化-${month}${day}`;
+};
+
+// 解析 AI 返回的 JSON 为预览数据
+const parseAIPreview = (jsonStr: string): Partial<ResumeData> | null => {
+  try {
+    const parsed = extractJsonContent(jsonStr);
+    if (!parsed) return null;
+
+    return {
+      basic: {
+        name: parsed.basic?.name || "",
+        title: parsed.basic?.title || "",
+        email: parsed.basic?.email || "",
+        phone: parsed.basic?.phone || "",
+        location: parsed.basic?.location || "",
+        birthDate: "",
+        icons: {},
+        employementStatus: "",
+        photo: "",
+        photoConfig: {
+          width: 90,
+          height: 120,
+          aspectRatio: "1:1" as const,
+          borderRadius: "none" as const,
+          customBorderRadius: 0,
+          visible: true
+        },
+        customFields: [],
+        githubKey: "",
+        githubUseName: "",
+        githubContributionsVisible: false
+      },
+      experience: Array.isArray(parsed.experience) ? parsed.experience.map((exp: any) => ({
+        id: exp.id || crypto.randomUUID(),
+        company: exp.company || "",
+        position: exp.position || "",
+        date: exp.date || "",
+        details: Array.isArray(exp.details)
+          ? `<ul>${exp.details.map((d: string) => `<li>${d}</li>`).join("")}</ul>`
+          : exp.details || "",
+        visible: true
+      })) : [],
+      projects: Array.isArray(parsed.projects) ? parsed.projects.map((proj: any) => ({
+        id: proj.id || crypto.randomUUID(),
+        name: proj.name || "",
+        role: proj.role || "",
+        date: proj.date || "",
+        description: Array.isArray(proj.description)
+          ? `<ul>${proj.description.map((d: string) => `<li>${d}</li>`).join("")}</ul>`
+          : proj.description || "",
+        visible: true,
+        link: "",
+        linkLabel: ""
+      })) : [],
+      education: Array.isArray(parsed.education) ? parsed.education.map((edu: any) => ({
+        id: edu.id || crypto.randomUUID(),
+        school: edu.school || "",
+        major: edu.major || "",
+        degree: edu.degree || "",
+        startDate: edu.startDate || "",
+        endDate: edu.endDate || "",
+        description: edu.description || "",
+        visible: true
+      })) : [],
+      skillContent: Array.isArray(parsed.skills)
+        ? `<ul>${parsed.skills.map((s: string) => `<li>${s}</li>`).join("")}</ul>`
+        : parsed.skillContent || "",
+      selfEvaluationContent: parsed.selfEvaluation || "",
+      certificates: [],
+      customData: {}
+    };
+  } catch {
+    return null;
+  }
+};
 
 type Mode = "optimize" | "generate";
 
@@ -134,6 +218,8 @@ export default function AIOptimizePage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState("");
   const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewData, setPreviewData] = useState<Partial<ResumeData> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
 
@@ -181,6 +267,8 @@ export default function AIOptimizePage() {
 
       setIsGenerating(true);
       setResult("");
+      setShowPreview(false);
+      setPreviewData(null);
       abortControllerRef.current = new AbortController();
 
       const config = AI_MODEL_CONFIGS[selectedModel];
@@ -242,6 +330,7 @@ ${experienceContent}`;
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let pending = "";
+      let fullResult = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -266,7 +355,8 @@ ${experienceContent}`;
 
             const content = data.choices?.[0]?.delta?.content;
             if (content) {
-              setResult((prev) => prev + content);
+              fullResult += content;
+              setResult(fullResult);
             }
           } catch (e) {
             if (e instanceof Error && e.message !== "No response body") {
@@ -285,10 +375,18 @@ ${experienceContent}`;
             const data = JSON.parse(payload);
             const content = data.choices?.[0]?.delta?.content;
             if (content) {
-              setResult((prev) => prev + content);
+              fullResult += content;
+              setResult(fullResult);
             }
           } catch {}
         }
+      }
+
+      // 生成完成后解析预览
+      const preview = parseAIPreview(fullResult);
+      if (preview) {
+        setPreviewData(preview);
+        setShowPreview(true);
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
@@ -310,67 +408,96 @@ ${experienceContent}`;
   const handleApply = () => {
     try {
       const parsed = extractJsonContent(result);
+      if (!parsed) {
+        toast.error("解析 AI 结果失败，请重试");
+        return;
+      }
 
+      // 生成带 AI 标识的简历名
+      let title = "新简历";
       if (mode === "optimize" && selectedResumeId) {
         const selectedResume = resumes[selectedResumeId];
         if (selectedResume) {
-          const updatedResume = {
-            ...selectedResume,
-            basic: {
-              ...selectedResume.basic,
-              name: parsed.basic?.name || selectedResume.basic.name,
-              title: parsed.basic?.title || selectedResume.basic.title,
-              email: parsed.basic?.email || selectedResume.basic.email,
-              phone: parsed.basic?.phone || selectedResume.basic.phone,
-              location: parsed.basic?.location || selectedResume.basic.location,
-            },
-            experience: parsed.experience?.map((exp: any) => ({
-              id: exp.id || crypto.randomUUID(),
-              company: exp.company || "",
-              position: exp.position || "",
-              date: exp.date || "",
-              details: Array.isArray(exp.details)
-                ? `<ul>${exp.details.map((d: string) => `<li>${d}</li>`).join("")}</ul>`
-                : exp.details || "",
-              visible: true
-            })) || selectedResume.experience,
-            projects: parsed.projects?.map((proj: any) => ({
-              id: proj.id || crypto.randomUUID(),
-              name: proj.name || "",
-              role: proj.role || "",
-              date: proj.date || "",
-              description: Array.isArray(proj.description)
-                ? `<ul>${proj.description.map((d: string) => `<li>${d}</li>`).join("")}</ul>`
-                : proj.description || "",
-              visible: true
-            })) || selectedResume.projects,
-            education: parsed.education?.map((edu: any) => ({
-              id: edu.id || crypto.randomUUID(),
-              school: edu.school || "",
-              major: edu.major || "",
-              degree: edu.degree || "",
-              startDate: edu.startDate || "",
-              endDate: edu.endDate || "",
-              description: edu.description || "",
-              visible: true
-            })) || selectedResume.education,
-            skillContent: Array.isArray(parsed.skills)
-              ? `<ul>${parsed.skills.map((s: string) => `<li>${s}</li>`).join("")}</ul>`
-              : parsed.skillContent || selectedResume.skillContent,
-            selfEvaluationContent: parsed.selfEvaluation || selectedResume.selfEvaluationContent,
-            updatedAt: new Date().toISOString()
-          };
-
-          updateResume(selectedResumeId, updatedResume);
-          toast.success("简历优化完成！");
-          router.push(`/app/workbench/${selectedResumeId}`);
+          title = generateAIFilename(selectedResume.title);
         }
       } else {
-        const resume = createResumeFromAIResult(parsed, "AI 优化简历");
-        const resumeId = addResume(resume);
-        toast.success("简历创建成功！");
-        router.push(`/app/workbench/${resumeId}`);
+        title = generateAIFilename("新简历");
       }
+
+      // 构建简历数据（使用正确的字段结构）
+      const resumeData = {
+        title,
+        basic: {
+          name: parsed.basic?.name || "",
+          title: parsed.basic?.title || "",
+          email: parsed.basic?.email || "",
+          phone: parsed.basic?.phone || "",
+          location: parsed.basic?.location || "",
+          birthDate: "",
+          icons: {},
+          employementStatus: "",
+          photo: "",
+          photoConfig: {
+            width: 90,
+            height: 120,
+            aspectRatio: "1:1" as const,
+            borderRadius: "none" as const,
+            customBorderRadius: 0,
+            visible: true
+          },
+          customFields: [],
+          githubKey: "",
+          githubUseName: "",
+          githubContributionsVisible: false
+        },
+        experience: Array.isArray(parsed.experience) ? parsed.experience.map((exp: any) => ({
+          id: exp.id || crypto.randomUUID(),
+          company: exp.company || "",
+          position: exp.position || "",
+          date: exp.date || "",
+          details: Array.isArray(exp.details)
+            ? `<ul>${exp.details.map((d: string) => `<li>${d}</li>`).join("")}</ul>`
+            : exp.details || "",
+          visible: true
+        })) : [],
+        projects: Array.isArray(parsed.projects) ? parsed.projects.map((proj: any) => ({
+          id: proj.id || crypto.randomUUID(),
+          name: proj.name || "",
+          role: proj.role || "",
+          date: proj.date || "",
+          description: Array.isArray(proj.description)
+            ? `<ul>${proj.description.map((d: string) => `<li>${d}</li>`).join("")}</ul>`
+            : proj.description || "",
+          visible: true,
+          link: "",
+          linkLabel: ""
+        })) : [],
+        education: Array.isArray(parsed.education) ? parsed.education.map((edu: any) => ({
+          id: edu.id || crypto.randomUUID(),
+          school: edu.school || "",
+          major: edu.major || "",
+          degree: edu.degree || "",
+          startDate: edu.startDate || "",
+          endDate: edu.endDate || "",
+          description: edu.description || "",
+          visible: true
+        })) : [],
+        skillContent: Array.isArray(parsed.skills)
+          ? `<ul>${parsed.skills.map((s: string) => `<li>${s}</li>`).join("")}</ul>`
+          : parsed.skillContent || "",
+        selfEvaluationContent: parsed.selfEvaluation || "",
+        certificates: [],
+        customData: {},
+        activeSection: "",
+        draggingProjectId: null,
+        menuSections: [],
+        globalSettings: {}
+      };
+
+      // 创建新简历（不覆盖原简历）
+      const resumeId = addResume(resumeData);
+      toast.success(`已创建新简历：${title}`);
+      router.push(`/app/workbench/${resumeId}`);
     } catch (error) {
       console.error("Apply error:", error);
       toast.error("解析 AI 结果失败，请重试");
@@ -627,7 +754,16 @@ ${experienceContent}`;
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => { setResult(""); handleGenerate(); }}
+                  onClick={() => setShowPreview(!showPreview)}
+                  className="h-7 px-2 text-xs"
+                >
+                  {showPreview ? <EyeOff className="h-3 w-3 mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
+                  {showPreview ? "原始" : "预览"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setResult(""); setShowPreview(false); setPreviewData(null); handleGenerate(); }}
                   className="h-7 px-2 text-xs"
                 >
                   <RotateCcw className="h-3 w-3 mr-1" />
@@ -647,13 +783,103 @@ ${experienceContent}`;
             )}
           >
             {result ? (
-              <Streamdown
-                animated
-                isAnimating={isGenerating}
-                className="prose dark:prose-invert max-w-none text-sm"
-              >
-                {result}
-              </Streamdown>
+              showPreview && previewData ? (
+                // 预览模式
+                <div className="space-y-4">
+                  {/* 基本信息 */}
+                  {previewData.basic && (
+                    <div className="border-b pb-3">
+                      <h3 className="text-lg font-bold">{previewData.basic.name || "未填写姓名"}</h3>
+                      {previewData.basic.title && <p className="text-primary">{previewData.basic.title}</p>}
+                      <div className="flex gap-3 text-xs text-neutral-500 mt-1">
+                        {previewData.basic.email && <span>{previewData.basic.email}</span>}
+                        {previewData.basic.phone && <span>{previewData.basic.phone}</span>}
+                        {previewData.basic.location && <span>{previewData.basic.location}</span>}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 工作经历 */}
+                  {previewData.experience && previewData.experience.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">工作经历</h4>
+                      {previewData.experience.map((exp) => (
+                        <div key={exp.id} className="mb-2 pl-3 border-l-2 border-primary/30">
+                          <div className="flex justify-between">
+                            <span className="font-medium text-sm">{exp.company}</span>
+                            <span className="text-xs text-neutral-500">{exp.date}</span>
+                          </div>
+                          <p className="text-xs text-primary">{exp.position}</p>
+                          {exp.details && (
+                            <div className="text-xs mt-1 prose prose-xs dark:prose-invert" dangerouslySetInnerHTML={{ __html: exp.details }} />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 项目经历 */}
+                  {previewData.projects && previewData.projects.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">项目经历</h4>
+                      {previewData.projects.map((proj) => (
+                        <div key={proj.id} className="mb-2 pl-3 border-l-2 border-green-500/30">
+                          <div className="flex justify-between">
+                            <span className="font-medium text-sm">{proj.name}</span>
+                            <span className="text-xs text-neutral-500">{proj.date}</span>
+                          </div>
+                          <p className="text-xs text-green-600">{proj.role}</p>
+                          {proj.description && (
+                            <div className="text-xs mt-1 prose prose-xs dark:prose-invert" dangerouslySetInnerHTML={{ __html: proj.description }} />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 教育经历 */}
+                  {previewData.education && previewData.education.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">教育经历</h4>
+                      {previewData.education.map((edu) => (
+                        <div key={edu.id} className="mb-2 pl-3 border-l-2 border-blue-500/30">
+                          <div className="flex justify-between">
+                            <span className="font-medium text-sm">{edu.school}</span>
+                            <span className="text-xs text-neutral-500">{edu.startDate} - {edu.endDate}</span>
+                          </div>
+                          <p className="text-xs text-blue-600">{edu.major} {edu.degree}</p>
+                          {edu.description && <p className="text-xs mt-1">{edu.description}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 技能 */}
+                  {previewData.skillContent && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">技能</h4>
+                      <div className="text-xs prose prose-xs dark:prose-invert" dangerouslySetInnerHTML={{ __html: previewData.skillContent }} />
+                    </div>
+                  )}
+
+                  {/* 自我评价 */}
+                  {previewData.selfEvaluationContent && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">自我评价</h4>
+                      <p className="text-xs">{previewData.selfEvaluationContent}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                // 原始 JSON 模式
+                <Streamdown
+                  animated
+                  isAnimating={isGenerating}
+                  className="prose dark:prose-invert max-w-none text-sm"
+                >
+                  {result}
+                </Streamdown>
+              )
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-neutral-400">
                 <FileText className="h-12 w-12 mb-3" />
@@ -667,7 +893,7 @@ ${experienceContent}`;
             <div className="flex gap-2 mt-4">
               <Button
                 variant="outline"
-                onClick={() => setResult("")}
+                onClick={() => { setResult(""); setShowPreview(false); setPreviewData(null); }}
                 className="flex-1"
               >
                 清空结果
@@ -677,7 +903,7 @@ ${experienceContent}`;
                 className="flex-1 bg-primary hover:bg-primary/90 text-white"
               >
                 <Check className="h-4 w-4 mr-2" />
-                {mode === "optimize" ? "应用到原简历" : "创建新简历"}
+                {mode === "optimize" ? "创建优化简历" : "创建新简历"}
               </Button>
             </div>
           )}
