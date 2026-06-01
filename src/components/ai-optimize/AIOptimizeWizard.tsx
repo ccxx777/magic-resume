@@ -114,18 +114,18 @@ const parseAIPreview = (jsonStr: string): Partial<ResumeData> | null => {
 
 type Mode = "optimize" | "generate";
 
-// 将简历数据转换为 Markdown 格式
+// 将简历数据转换为 Markdown 格式（只传需要优化的部分）
 const resumeToMarkdown = (resume: ResumeData): string => {
   const parts: string[] = [];
 
+  // 只传递姓名和目标岗位，其他基本信息不传（不需要优化）
   if (resume.basic.name) {
     parts.push(`# ${resume.basic.name}`);
-    if (resume.basic.title) parts.push(`**${resume.basic.title}**`);
-    const contactInfo = [resume.basic.email, resume.basic.phone, resume.basic.location].filter(Boolean);
-    if (contactInfo.length) parts.push(contactInfo.join(" | "));
+    if (resume.basic.title) parts.push(`目标岗位：${resume.basic.title}`);
     parts.push("");
   }
 
+  // 工作经历（需要优化）
   if (resume.experience.length > 0) {
     parts.push("## 工作经历");
     resume.experience.forEach((exp) => {
@@ -138,6 +138,7 @@ const resumeToMarkdown = (resume: ResumeData): string => {
     });
   }
 
+  // 项目经历（需要优化）
   if (resume.projects.length > 0) {
     parts.push("## 项目经历");
     resume.projects.forEach((proj) => {
@@ -166,17 +167,7 @@ const resumeToMarkdown = (resume: ResumeData): string => {
     });
   }
 
-  if (resume.skillContent) {
-    parts.push("## 技能");
-    parts.push(resume.skillContent.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " "));
-    parts.push("");
-  }
-
-  if (resume.selfEvaluationContent) {
-    parts.push("## 自我评价");
-    parts.push(resume.selfEvaluationContent.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " "));
-    parts.push("");
-  }
+  // 技能和自我评价不传给 LLM，由 LLM 根据 JD 自动生成
 
   return parts.join("\n");
 };
@@ -413,32 +404,33 @@ ${experienceContent}`;
         return;
       }
 
+      // 获取原简历数据（如果是优化模式）
+      const originalResume = mode === "optimize" && selectedResumeId
+        ? resumes[selectedResumeId]
+        : null;
+
       // 生成带 AI 标识的简历名
-      let title = "新简历";
-      if (mode === "optimize" && selectedResumeId) {
-        const selectedResume = resumes[selectedResumeId];
-        if (selectedResume) {
-          title = generateAIFilename(selectedResume.title);
-        }
-      } else {
-        title = generateAIFilename("新简历");
-      }
+      const title = originalResume
+        ? generateAIFilename(originalResume.title)
+        : generateAIFilename("新简历");
 
       const now = new Date().toISOString();
 
       // 构建完整的简历数据
+      // 基本信息和教育经历从原简历获取，不使用 AI 返回的
       const resumeData: ResumeData = {
         id: crypto.randomUUID(),
         title,
         createdAt: now,
         updatedAt: now,
-        templateId: "classic",
-        basic: {
-          name: parsed.basic?.name || "",
-          title: parsed.basic?.title || "",
-          email: parsed.basic?.email || "",
-          phone: parsed.basic?.phone || "",
-          location: parsed.basic?.location || "",
+        templateId: originalResume?.templateId || "classic",
+        // 基本信息完全保留原简历的，包括图片
+        basic: originalResume?.basic || {
+          name: "",
+          title: "",
+          email: "",
+          phone: "",
+          location: "",
           birthDate: "",
           icons: {
             email: "Mail",
@@ -460,6 +452,7 @@ ${experienceContent}`;
           githubUseName: "",
           githubContributionsVisible: false
         },
+        // 工作经历使用 AI 优化后的
         experience: Array.isArray(parsed.experience) ? parsed.experience.map((exp: any) => ({
           id: exp.id || crypto.randomUUID(),
           company: exp.company || "",
@@ -470,6 +463,7 @@ ${experienceContent}`;
             : exp.details || "",
           visible: true
         })) : [],
+        // 项目经历使用 AI 优化后的
         projects: Array.isArray(parsed.projects) ? parsed.projects.map((proj: any) => ({
           id: proj.id || crypto.randomUUID(),
           name: proj.name || "",
@@ -480,32 +474,25 @@ ${experienceContent}`;
             : proj.description || "",
           visible: true
         })) : [],
-        education: Array.isArray(parsed.education) ? parsed.education.map((edu: any) => ({
-          id: edu.id || crypto.randomUUID(),
-          school: edu.school || "",
-          major: edu.major || "",
-          degree: edu.degree || "",
-          startDate: edu.startDate || "",
-          endDate: edu.endDate || "",
-          description: edu.description || "",
-          visible: true
-        })) : [],
+        // 教育经历完全保留原简历的
+        education: originalResume?.education || [],
+        // 技能使用 AI 优化后的（3-5条精简版）
         skillContent: Array.isArray(parsed.skills)
           ? `<ul>${parsed.skills.map((s: string) => `<li>${s}</li>`).join("")}</ul>`
-          : parsed.skillContent || "",
+          : "",
         selfEvaluationContent: parsed.selfEvaluation || "",
-        certificates: [],
-        customData: {},
+        certificates: originalResume?.certificates || [],
+        customData: originalResume?.customData || {},
         activeSection: "basic",
         draggingProjectId: null,
-        menuSections: [
+        menuSections: originalResume?.menuSections || [
           { id: "basic", title: "基本信息", icon: "👤", enabled: true, order: 0 },
           { id: "skills", title: "专业技能", icon: "⚡", enabled: true, order: 1 },
           { id: "experience", title: "工作经验", icon: "💼", enabled: true, order: 2 },
           { id: "projects", title: "项目经历", icon: "🚀", enabled: true, order: 3 },
           { id: "education", title: "教育经历", icon: "🎓", enabled: true, order: 4 },
         ],
-        globalSettings: {
+        globalSettings: originalResume?.globalSettings || {
           baseFontSize: 16,
           pagePadding: 32,
           paragraphSpacing: 12,
