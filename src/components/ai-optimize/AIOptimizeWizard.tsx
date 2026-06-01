@@ -586,7 +586,7 @@ ${experienceContent}`;
           <Textarea
             value={currentPrompt}
             onChange={(e) => setCurrentPrompt(e.target.value)}
-            className="min-h-[200px] resize-none font-mono text-xs"
+            className="min-h-[200px] resize-y font-mono text-xs"
             placeholder="输入提示词..."
           />
           <p className="text-xs text-neutral-400 mt-2">
