@@ -424,9 +424,15 @@ ${experienceContent}`;
         title = generateAIFilename("新简历");
       }
 
-      // 构建简历数据（使用正确的字段结构）
-      const resumeData = {
+      const now = new Date().toISOString();
+
+      // 构建完整的简历数据
+      const resumeData: ResumeData = {
+        id: crypto.randomUUID(),
         title,
+        createdAt: now,
+        updatedAt: now,
+        templateId: "classic",
         basic: {
           name: parsed.basic?.name || "",
           title: parsed.basic?.title || "",
@@ -434,14 +440,18 @@ ${experienceContent}`;
           phone: parsed.basic?.phone || "",
           location: parsed.basic?.location || "",
           birthDate: "",
-          icons: {},
+          icons: {
+            email: "Mail",
+            phone: "Phone",
+            location: "MapPin"
+          },
           employementStatus: "",
           photo: "",
           photoConfig: {
             width: 90,
             height: 120,
-            aspectRatio: "1:1" as const,
-            borderRadius: "none" as const,
+            aspectRatio: "1:1",
+            borderRadius: "none",
             customBorderRadius: 0,
             visible: true
           },
@@ -468,9 +478,7 @@ ${experienceContent}`;
           description: Array.isArray(proj.description)
             ? `<ul>${proj.description.map((d: string) => `<li>${d}</li>`).join("")}</ul>`
             : proj.description || "",
-          visible: true,
-          link: "",
-          linkLabel: ""
+          visible: true
         })) : [],
         education: Array.isArray(parsed.education) ? parsed.education.map((edu: any) => ({
           id: edu.id || crypto.randomUUID(),
@@ -488,10 +496,27 @@ ${experienceContent}`;
         selfEvaluationContent: parsed.selfEvaluation || "",
         certificates: [],
         customData: {},
-        activeSection: "",
+        activeSection: "basic",
         draggingProjectId: null,
-        menuSections: [],
-        globalSettings: {}
+        menuSections: [
+          { id: "basic", title: "基本信息", icon: "👤", enabled: true, order: 0 },
+          { id: "skills", title: "专业技能", icon: "⚡", enabled: true, order: 1 },
+          { id: "experience", title: "工作经验", icon: "💼", enabled: true, order: 2 },
+          { id: "projects", title: "项目经历", icon: "🚀", enabled: true, order: 3 },
+          { id: "education", title: "教育经历", icon: "🎓", enabled: true, order: 4 },
+        ],
+        globalSettings: {
+          baseFontSize: 16,
+          pagePadding: 32,
+          paragraphSpacing: 12,
+          lineHeight: 1.5,
+          sectionSpacing: 10,
+          headerSize: 18,
+          subheaderSize: 16,
+          useIconMode: true,
+          themeColor: "#000000",
+          centerSubtitle: true,
+        }
       };
 
       // 创建新简历（不覆盖原简历）
